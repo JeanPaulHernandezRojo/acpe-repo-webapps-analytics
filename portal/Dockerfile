@@ -3,7 +3,7 @@
 # portal/config). Ejemplo: docker build -f portal/Dockerfile .
 
 # ---------- Etapa 1: build del frontend ----------
-FROM node:22-alpine AS frontend
+FROM node:26-alpine AS frontend
 WORKDIR /build
 RUN corepack enable
 COPY portal/frontend/package.json portal/frontend/pnpm-lock.yaml ./
