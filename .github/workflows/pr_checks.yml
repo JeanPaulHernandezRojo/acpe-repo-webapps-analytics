@@ -78,7 +78,7 @@ jobs:
 
       - name: Setup Node
         if: steps.detect.outputs.tipo == 'portal'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
