@@ -86,7 +86,7 @@ jobs:
       # código de la versión que se despliega (en un rollback la rama release es anterior).
       # fetch-depth 0 trae todas las ramas: se necesita la release y el historial de PRs.
       - name: Checkout main (herramientas de bitácora)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -104,7 +104,7 @@ jobs:
             --contexto "$RUNNER_TEMP/contexto_pase.json"
 
       - name: Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.solicitud.outputs.release_branch }}
           path: release
