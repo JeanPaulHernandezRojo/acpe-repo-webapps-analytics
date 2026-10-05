@@ -1,0 +1,64 @@
+[project]
+name = "acpe-repo-webapps-analytics"
+version = "0.1.0"
+description = "ALEJANDRÍA: repositorio centralizado de herramientas analíticas (portal + CI/CD)"
+requires-python = ">=3.12,<3.13"
+# El backend es miembro del workspace; los scripts de CI reutilizan su política de correos.
+dependencies = [
+    "alejandria-backend",
+    "pyyaml>=6.0",
+    "google-cloud-storage>=2.16",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "pre-commit>=3.7",
+    # Cliente HTTP que usa el TestClient de FastAPI.
+    "httpx>=0.27",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["portal/backend"]
+
+[tool.uv.sources]
+alejandria-backend = { workspace = true }
+
+# ====== Ruff: misma configuración que el repo de pipelines de ML ======
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["portal/frontend"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "N", "D"]
+ignore = [
+    "D100",  # Docstring de módulo opcional
+    "D104",  # Docstring de paquete opcional
+    "D107",  # Docstring de __init__ opcional
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-bugbear]
+# Depends(...) como valor por defecto es el patrón estándar de inyección de FastAPI.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.params.Depends"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["alejandria"]
+
+# ====== Pytest ======
+[tool.pytest.ini_options]
+# Los scripts se ejecutan como archivos sueltos (python scripts/x.py), así que sus tests
+# los importan desde la carpeta scripts/.
+pythonpath = ["scripts", "portal/backend/src"]
+testpaths = ["portal/backend/tests", "scripts/tests"]
+addopts = "-ra --strict-markers"

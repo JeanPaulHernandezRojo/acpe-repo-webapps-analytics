@@ -1,0 +1,57 @@
+# Solicitud de pase a producción de ALEJANDRÍA (portal o una app).
+# Los labels de los campos son un contrato con scripts/pase_prd.py (CAMPO_*): si se cambia
+# un label aquí, se cambia allá en la misma PR (un test lo verifica).
+name: Pase a producción
+description: Solicitar el despliegue a PRD del portal o de una app.
+title: "[Pase PRD] <unidad> <versión>"
+labels: ["pase-prd"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de crear la solicitud:
+        1. El cambio está mergeado en `main`.
+        2. Existe la rama release creada desde `main`:
+           - portal: `release_portal_<versión>`
+           - app: `release_<dominio>_<app>_<versión>`
+        3. Lo que va a PRD pasó por `deploy_qa` (o es un cambio solo de accesos ya sincronizado en QA).
+  - type: input
+    id: unidad
+    attributes:
+      label: Unidad a desplegar
+      description: "`portal` o la carpeta de la app, por ejemplo `apps/comercial/simulador_precios`."
+      placeholder: apps/comercial/simulador_precios
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión
+      description: Versión CalVer declarada en portal.yaml o en el app.yaml (AAAA-MM-DD-NN).
+      placeholder: 2026-10-01-01
+    validations:
+      required: true
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: Tipo de cambio
+      options:
+        - Inicial
+        - Incremental
+        - Rollback
+    validations:
+      required: true
+  - type: input
+    id: area
+    attributes:
+      label: Área de negocio impactada
+      placeholder: Comercial
+    validations:
+      required: true
+  - type: textarea
+    id: detalle
+    attributes:
+      label: Detalle del cambio
+      description: Qué cambia para el usuario. Si es un cambio solo de accesos, indicarlo.
+    validations:
+      required: true

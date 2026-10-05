@@ -1,0 +1,16 @@
+# Contexto de build = raíz del repo. Solo se necesitan pyproject/uv.lock y portal/.
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+apps
+docs
+scripts
+portal/frontend/node_modules
+portal/frontend/dist
+portal/backend/tests
+portal/frontend/tests
+*.md

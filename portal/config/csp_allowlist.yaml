@@ -1,0 +1,22 @@
+# Lista blanca global de dominios externos que pueden usar los HTML publicados.
+# El portal la envía como Content-Security-Policy de su página y el iframe del visor la hereda:
+# si un HTML intenta cargar algo de un dominio fuera de esta lista, el navegador lo bloquea.
+# El HTML NO se modifica. Cada cambio a esta lista pasa por PR y lo revisa el code owner.
+# Formato: origen con esquema (https://dominio) o comodín de subdominio (https://*.dominio).
+
+csp:
+  # Servidores de teselas (tiles) de mapas.
+  mapas:
+    - "https://*.tile.openstreetmap.org"
+    - "https://tile.openstreetmap.org"
+    - "https://*.basemaps.cartocdn.com"
+    - "https://basemaps.cartocdn.com"
+  # CDN de librerías JavaScript/CSS usadas por los HTML (Plotly, Leaflet, Chart.js, etc.).
+  # Ajustar con los HTML reales que se publiquen.
+  cdn:
+    - "https://cdn.jsdelivr.net"
+    - "https://cdnjs.cloudflare.com"
+    - "https://unpkg.com"
+    - "https://cdn.plot.ly"
+    - "https://fonts.googleapis.com"
+    - "https://fonts.gstatic.com"

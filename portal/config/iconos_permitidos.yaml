@@ -1,0 +1,27 @@
+# Íconos (lucide) que puede usar una tarjeta en app.yaml -> tarjeta.icono.
+# El frontend tiene el mismo listado en src/config/icons.ts; un test verifica que coincidan.
+# Para agregar uno: sumarlo aquí y en icons.ts en la misma PR.
+
+iconos:
+  - "layout-dashboard"
+  - "chart-line"
+  - "chart-bar"
+  - "chart-pie"
+  - "map"
+  - "map-pin"
+  - "boxes"
+  - "package"
+  - "truck"
+  - "store"
+  - "shopping-cart"
+  - "users"
+  - "user-check"
+  - "calculator"
+  - "percent"
+  - "coins"
+  - "factory"
+  - "warehouse"
+  - "target"
+  - "trending-up"
+  - "table"
+  - "file-spreadsheet"

@@ -1,0 +1,20 @@
+# Identidad del portal ALEJANDRÍA. Se usa igual en QA y PRD.
+# Lo específico de cada ambiente vive en env_qa.yaml / env_prd.yaml.
+
+portal:
+  # Nombre y subtítulo visibles en el sidebar y en la pantalla de ingreso.
+  nombre: "ALEJANDRÍA"
+  subtitulo: "Herramientas analíticas"
+  # Texto de la página "sin herramientas": a quién pedir acceso.
+  contacto: "Si necesitas acceso a una herramienta, escríbele al equipo de Analítica Avanzada."
+  # Versión de release CalVer (AAAA-MM-DD-NN). Se sube en cada pase del portal a PRD:
+  # taggea la imagen, nombra la rama release_portal_<version> y la valida el control C3.
+  version: "2026-10-01-01"
+
+# Labels de costos y trazabilidad del servicio de Cloud Run (formato GCP:
+# minúsculas, dígitos, '_' y '-', hasta 63 caracteres). El despliegue agrega env y version.
+labels:
+  domain: "analitica"
+  project_name: "alejandria"
+  ceco: "data-analytics"
+  managed_by: "jhernandezr"

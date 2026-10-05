@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Marca de referencia del portal: un frontón con columnas, como una biblioteca.
+       Se puede reemplazar por un logo oficial manteniendo el nombre del archivo. -->
+  <rect width="48" height="48" rx="10" fill="#E31837"/>
+  <path d="M24 9 38 16H10L24 9Z" fill="#fff"/>
+  <rect x="10" y="17.5" width="28" height="2.5" rx="1" fill="#fff"/>
+  <rect x="12.5" y="22" width="3.5" height="12" rx="1" fill="#fff"/>
+  <rect x="19" y="22" width="3.5" height="12" rx="1" fill="#fff"/>
+  <rect x="25.5" y="22" width="3.5" height="12" rx="1" fill="#fff"/>
+  <rect x="32" y="22" width="3.5" height="12" rx="1" fill="#fff"/>
+  <rect x="9" y="35.5" width="30" height="3" rx="1" fill="#fff"/>
+</svg>

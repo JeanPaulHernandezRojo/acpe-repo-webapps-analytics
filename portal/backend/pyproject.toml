@@ -1,0 +1,23 @@
+[project]
+name = "alejandria-backend"
+# Versión técnica del paquete (PEP 440). La versión de release CalVer del portal vive en
+# portal/config/portal.yaml.
+version = "0.1.0"
+description = "Backend FastAPI del portal ALEJANDRÍA"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    # Verificación de ID tokens y cookies de sesión de Identity Platform.
+    "firebase-admin>=6.5",
+    "google-cloud-storage>=2.16",
+    "pyyaml>=6.0",
+    "pydantic>=2.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alejandria"]

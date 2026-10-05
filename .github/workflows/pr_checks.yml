@@ -1,0 +1,111 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  # El nombre del job es el check obligatorio del ruleset de main.
+  validate-and-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Necesario para comparar contra main.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+
+      # Una PR toca como máximo una unidad desplegable: `portal` o `apps/<dominio>/<app>`.
+      # Cambios en docs/, scripts/ o .github/ acompañan a cualquiera o van solos.
+      - name: Detectar unidad modificada
+        id: detect
+        run: |
+          uv run python scripts/detectar_unidad.py \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --head-ref "HEAD"
+
+      # Respaldo del hook local: si alguien no instaló pre-commit, aquí se aplican las mismas
+      # reglas (incluye el tope de 5 MB por HTML y gitleaks) sobre los archivos de la PR.
+      - name: pre-commit sobre los archivos de la PR
+        run: |
+          uv run pre-commit run \
+            --from-ref "origin/${{ github.base_ref }}" \
+            --to-ref HEAD \
+            --show-diff-on-failure
+
+      # Contrato de todos los app.yaml: campos, carpetas, íconos, correos, capacidades, labels.
+      - name: Validar apps
+        run: uv run python scripts/validar_apps.py --repo-root .
+
+      # Informativo: un cambio solo de accesos no necesita deploy_qa (se sincroniza al mergear).
+      - name: ¿Cambio solo de accesos?
+        if: steps.detect.outputs.tipo == 'app'
+        run: |
+          uv run python scripts/solo_accesos.py \
+            --base-ref "origin/${{ github.base_ref }}" \
+            --head-ref "HEAD" \
+            --app-path "${{ steps.detect.outputs.unidad }}"
+
+      - name: Lint con Ruff
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      # Backend y scripts: son rápidos, corren en toda PR.
+      - name: Tests de Python
+        run: uv run pytest
+
+      # ---------- Solo si la PR modifica el portal ----------
+      - name: Setup pnpm
+        if: steps.detect.outputs.tipo == 'portal'
+        uses: pnpm/action-setup@v4
+        with:
+          # Toma la versión del campo packageManager de package.json.
+          package_json_file: portal/frontend/package.json
+
+      - name: Setup Node
+        if: steps.detect.outputs.tipo == 'portal'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: portal/frontend/pnpm-lock.yaml
+
+      - name: Frontend (lint, tipos, formato, tests y build)
+        if: steps.detect.outputs.tipo == 'portal'
+        working-directory: portal/frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm typecheck
+          pnpm format:check
+          pnpm test
+          pnpm build
+
+      - name: Build de la imagen (sin push)
+        if: steps.detect.outputs.tipo == 'portal'
+        run: docker build -f portal/Dockerfile -t portal-webapps:pr .
+
+      # Falla ante vulnerabilidades CRITICAL con parche disponible en la imagen del portal.
+      - name: Escaneo de vulnerabilidades (Trivy)
+        if: steps.detect.outputs.tipo == 'portal'
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: portal-webapps:pr
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table

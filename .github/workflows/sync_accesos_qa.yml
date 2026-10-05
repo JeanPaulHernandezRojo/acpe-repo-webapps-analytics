@@ -1,0 +1,61 @@
+name: Sync accesos QA
+
+# Al mergear a main un cambio en un app.yaml, actualiza la lista de acceso de QA sin exigir
+# un nuevo deploy_qa. sincronizar_accesos_qa.py solo escribe si la huella de la app es igual a
+# la publicada en QA (mismo contenido validado); si no, deja un aviso y no toca nada.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**/app.yaml"
+
+jobs:
+  sync-accesos-qa:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Workload Identity Federation (OIDC)
+      contents: read
+
+    env:
+      WIF_PROVIDER: ${{ vars.WIF_PROVIDER_QA }}
+      DEPLOYER_SA: ${{ vars.DEPLOYER_SA_QA }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Sincronizar accesos de las apps modificadas
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          apps=$(git diff --name-only "$BEFORE" "$AFTER" -- 'apps/*/*/app.yaml' \
+            | xargs -r -n1 dirname | sort -u)
+          for app in $apps; do
+            # Una app eliminada no se sincroniza (su baja de QA es manual).
+            if [ -f "$app/app.yaml" ]; then
+              uv run python scripts/sincronizar_accesos_qa.py \
+                --app-path "$app" --sha "$AFTER" --actor "${{ github.actor }}"
+            fi
+          done

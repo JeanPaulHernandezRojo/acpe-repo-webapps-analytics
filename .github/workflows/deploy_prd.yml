@@ -1,0 +1,228 @@
+name: Deploy to PRD
+
+# Los inputs de un workflow_dispatch no quedan expuestos en la API: el título del run es lo
+# que permite ubicar después a qué solicitud correspondió cada ejecución.
+run-name: "PRD · solicitud #${{ inputs.issue_number }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "N° del issue 'Pase a producción' (de ahí salen unidad, versión y rama)"
+        required: true
+        type: string
+
+jobs:
+  deploy-prd:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write       # Workload Identity Federation (OIDC)
+      contents: read        # Checkout
+      issues: write         # Comentario y cierre de la solicitud
+      pull-requests: read   # PRs y aprobaciones que alimentan la bitácora
+      statuses: read        # Commit status deploy/qa que respalda la imagen del portal
+
+    env:
+      WIF_PROVIDER: ${{ vars.WIF_PROVIDER_PRD }}
+      DEPLOYER_SA: ${{ vars.DEPLOYER_SA_PRD }}
+      IDENTITY_API_KEY: ${{ vars.IDENTITY_API_KEY_PRD }}
+      IDENTITY_AUTH_DOMAIN: ${{ vars.IDENTITY_AUTH_DOMAIN_PRD }}
+      # Prefijo gs:// de la bitácora, ej. gs://us-prod-stg-ml-webapps/prd_bitacora.
+      # Opcional: si está vacía, el pase corre igual y la evidencia queda solo en el issue.
+      BITACORA_URI: ${{ vars.BITACORA_URI_PRD }}
+      REGISTRY_HOST: us-east1-docker.pkg.dev
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      # C1 — Solo los usuarios de PRD_APPROVERS pueden ejecutar un pase.
+      - name: Verificar aprobador (C1)
+        env:
+          ACTOR: ${{ github.actor }}
+          APPROVERS: ${{ vars.PRD_APPROVERS }}
+        run: |
+          if [[ -z "$APPROVERS" ]]; then
+            echo "::error::La variable PRD_APPROVERS no está configurada."
+            exit 1
+          fi
+          IFS=',' read -ra LIST <<< "$APPROVERS"
+          for user in "${LIST[@]}"; do
+            if [[ "$(echo "$user" | xargs)" == "$ACTOR" ]]; then
+              echo "Usuario autorizado para pase a PRD: $ACTOR"; exit 0
+            fi
+          done
+          echo "::error::'$ACTOR' no está autorizado para pases a PRD (PRD_APPROVERS)."
+          exit 1
+
+      - name: Validate required GitHub Variables
+        run: |
+          missing=""
+          for var in WIF_PROVIDER DEPLOYER_SA IDENTITY_API_KEY IDENTITY_AUTH_DOMAIN; do
+            if [ -z "${!var}" ]; then
+              missing="${missing} ${var}"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Variables de repositorio vacías o no definidas:${missing}"
+            echo "Revisar Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
+
+      - name: Capture start time
+        id: inicio
+        run: echo "value=$(date -Iseconds)" >> "$GITHUB_OUTPUT"
+
+      # Se autentica antes de los controles para que un rechazo (C2/C4) también alcance a
+      # escribir su evidencia en la bitácora.
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Checkout de main SOLO para las herramientas de bitácora: el registro no depende del
+      # código de la versión que se despliega (en un rollback la rama release es anterior).
+      # fetch-depth 0 trae todas las ramas: se necesita la release y el historial de PRs.
+      - name: Checkout main (herramientas de bitácora)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          path: main
+
+      # C2 — La solicitud es la única fuente de la unidad, la versión y la rama release.
+      - name: Validar solicitud (C2)
+        id: solicitud
+        run: |
+          python3 main/scripts/pase_prd.py validar-solicitud \
+            --repo "${{ github.repository }}" \
+            --server-url "${{ github.server_url }}" \
+            --issue-number "${{ inputs.issue_number }}" \
+            --repo-dir main \
+            --contexto "$RUNNER_TEMP/contexto_pase.json"
+
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.solicitud.outputs.release_branch }}
+          path: release
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup Python
+        working-directory: release
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        working-directory: release
+        run: uv sync --locked
+
+      # C3 — La versión solicitada está declarada en el código del release.
+      - name: Verificar versión (C3)
+        working-directory: release
+        run: |
+          uv run python scripts/verificar_version.py \
+            --repo-root . \
+            --unidad "${{ steps.solicitud.outputs.unidad }}" \
+            --version-esperada "${{ steps.solicitud.outputs.version }}"
+
+      # Rutas de las imágenes y del catálogo de QA, tomadas de la config del release.
+      - name: Leer configuración de ambientes
+        id: cfg
+        working-directory: release
+        run: |
+          uv run python scripts/leer_config.py --archivo portal/config/env_qa.yaml \
+            --valor qa_repo=imagen.repositorio --valor qa_nombre=imagen.nombre \
+            --valor qa_bucket=bucket.nombre --valor qa_prefijo=bucket.prefijo
+          uv run python scripts/leer_config.py --archivo portal/config/env_prd.yaml \
+            --valor prd_repo=imagen.repositorio --valor prd_nombre=imagen.nombre
+
+      # C4 — Lo que va a PRD es exactamente lo validado en QA.
+      #   portal: ubica la imagen <version>-<sha> con deploy/qa exitoso y el mismo código.
+      #   app:    la huella de la release es la publicada en el catálogo de QA (o, en un
+      #           Rollback, la de un pase exitoso anterior).
+      - name: Validar evidencia de QA (C4)
+        id: qa
+        env:
+          UNIDAD: ${{ steps.solicitud.outputs.unidad }}
+          TIPO_UNIDAD: ${{ steps.solicitud.outputs.tipo_unidad }}
+          QA_IMAGE: ${{ steps.cfg.outputs.qa_repo }}/${{ steps.cfg.outputs.qa_nombre }}
+          QA_CATALOGO: gs://${{ steps.cfg.outputs.qa_bucket }}/${{ steps.cfg.outputs.qa_prefijo }}/_catalogo
+        run: |
+          if [ "$TIPO_UNIDAD" = "portal" ]; then
+            python3 main/scripts/pase_prd.py validar-qa-portal \
+              --repo "${{ github.repository }}" \
+              --qa-image "$QA_IMAGE" \
+              --contexto "$RUNNER_TEMP/contexto_pase.json"
+          else
+            huella=$(cd release && uv run python scripts/huella.py --app-path "$UNIDAD" | tail -n1)
+            dominio_app="${UNIDAD#apps/}"
+            python3 main/scripts/pase_prd.py validar-qa-app \
+              --huella-release "$huella" \
+              --qa-catalogo-uri "$QA_CATALOGO/$dominio_app.json" \
+              --bucket-uri "$BITACORA_URI" \
+              --contexto "$RUNNER_TEMP/contexto_pase.json"
+          fi
+
+      # ---------- Portal: promoción por digest (sin rebuild) + deploy ----------
+      - name: Promover imagen (QA -> PRD)
+        id: promote
+        if: steps.solicitud.outputs.tipo_unidad == 'portal'
+        working-directory: release
+        run: |
+          uv run python scripts/promover_imagen.py \
+            --qa-image "${{ steps.cfg.outputs.qa_repo }}/${{ steps.cfg.outputs.qa_nombre }}" \
+            --prd-image "${{ steps.cfg.outputs.prd_repo }}/${{ steps.cfg.outputs.prd_nombre }}" \
+            --source-tag "${{ steps.qa.outputs.qa_tag }}" \
+            --version "${{ steps.solicitud.outputs.version }}" \
+            --registry-host "$REGISTRY_HOST"
+
+      - name: Deploy a Cloud Run (PRD)
+        if: steps.solicitud.outputs.tipo_unidad == 'portal'
+        working-directory: release
+        run: |
+          uv run python scripts/desplegar_portal.py \
+            --env prd \
+            --image-ref "${{ steps.promote.outputs.image_ref }}" \
+            --version "${{ steps.solicitud.outputs.version }}" \
+            --identity-api-key "$IDENTITY_API_KEY" \
+            --identity-auth-domain "$IDENTITY_AUTH_DOMAIN"
+
+      # ---------- App: publicación desde la rama release ----------
+      - name: Publicar app en PRD
+        id: app
+        if: steps.solicitud.outputs.tipo_unidad == 'app'
+        working-directory: release
+        run: |
+          uv run python scripts/publicar_app.py \
+            --app-path "${{ steps.solicitud.outputs.unidad }}" \
+            --env prd \
+            --sha "${{ steps.solicitud.outputs.release_sha }}" \
+            --actor "${{ github.actor }}" \
+            --diff-output "$RUNNER_TEMP/diff_accesos.json"
+
+      # Se registra SIEMPRE: exitoso, fallido o rechazado por un control. Un intento
+      # rechazado también es evidencia para auditoría.
+      - name: Registrar bitácora del pase
+        if: always()
+        run: |
+          python3 main/scripts/pase_prd.py registrar \
+            --repo "${{ github.repository }}" \
+            --server-url "${{ github.server_url }}" \
+            --repo-dir main \
+            --contexto "$RUNNER_TEMP/contexto_pase.json" \
+            --bucket-uri "$BITACORA_URI" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --ejecutor "${{ github.actor }}" \
+            --estado-validacion "${{ steps.solicitud.outcome }}" \
+            --estado-qa "${{ steps.qa.outcome }}" \
+            --estado-job "${{ job.status }}" \
+            --fec-inicio "${{ steps.inicio.outputs.value }}" \
+            --imagen-prd "${{ steps.promote.outputs.image_uri }}" \
+            --imagen-digest "${{ steps.promote.outputs.digest }}" \
+            --objetos "${{ steps.app.outputs.objetos }}" \
+            --diff-accesos "$RUNNER_TEMP/diff_accesos.json"

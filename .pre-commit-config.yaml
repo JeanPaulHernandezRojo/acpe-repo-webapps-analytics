@@ -1,0 +1,32 @@
+# Hooks locales (instalar una vez con `uv run pre-commit install`). pr_checks corre los mismos
+# hooks sobre los archivos de cada PR, así que no instalarlos no evita los controles.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # Evita subir credenciales, API keys o tokens por error.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.28.0
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      # El HTML de una herramienta se publica tal como lo entregó el DS: no se modifica.
+      - id: end-of-file-fixer
+        exclude: ^apps/.*/index\.html$
+      - id: trailing-whitespace
+        exclude: ^apps/.*/index\.html$
+      # Tope de 5 MB por HTML (5120 KB). --enforce-all revisa también los ya versionados.
+      - id: check-added-large-files
+        args: [--maxkb=5120, --enforce-all]
+        files: \.html$

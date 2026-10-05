@@ -1,0 +1,234 @@
+name: Deploy to QA
+
+run-name: "QA · ${{ inputs.branch }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Rama a desplegar (debe tocar una sola unidad: portal o una app)"
+        required: true
+        type: string
+
+# El QA del portal es uno solo: los MLE se turnan para desplegar sus ramas (acuerdo de
+# equipo, sin bloqueo automático). Las apps no se pisan entre sí: cada una tiene su propia
+# entrada de catálogo y su propia carpeta en el bucket.
+
+jobs:
+  deploy-qa:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write       # Workload Identity Federation (OIDC)
+      contents: read        # Checkout
+      statuses: write       # Commit status "deploy/qa" (evidencia que usa el C4 del pase)
+      pull-requests: write  # Comentario en la PR
+
+    env:
+      WIF_PROVIDER: ${{ vars.WIF_PROVIDER_QA }}
+      DEPLOYER_SA: ${{ vars.DEPLOYER_SA_QA }}
+      IDENTITY_API_KEY: ${{ vars.IDENTITY_API_KEY_QA }}
+      IDENTITY_AUTH_DOMAIN: ${{ vars.IDENTITY_AUTH_DOMAIN_QA }}
+      REGISTRY_HOST: us-east1-docker.pkg.dev
+
+    steps:
+      - name: Validate required GitHub Variables
+        run: |
+          # Una variable inexistente resuelve a vacío SIN error y el fallo aparecería varios
+          # steps después con un mensaje opaco de gcloud: se valida al inicio.
+          missing=""
+          for var in WIF_PROVIDER DEPLOYER_SA IDENTITY_API_KEY IDENTITY_AUTH_DOMAIN; do
+            if [ -z "${!var}" ]; then
+              missing="${missing} ${var}"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Variables de repositorio vacías o no definidas:${missing}"
+            echo "Revisar Settings > Secrets and variables > Actions > Variables."
+            exit 1
+          fi
+
+      - name: Checkout target branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Capture tested SHA
+        id: sha
+        run: |
+          echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Find associated PR
+        id: find-pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${{ inputs.branch }}`,
+              state: 'open',
+            });
+            if (prs.length > 0) {
+              core.setOutput('pr_number', prs[0].number);
+            }
+
+      - name: Mark commit status as pending
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo,
+              sha: '${{ steps.sha.outputs.value }}',
+              state: 'pending', context: 'deploy/qa',
+              description: 'Despliegue a QA en curso...',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Setup Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Detectar unidad
+        id: detect
+        run: |
+          uv run python scripts/detectar_unidad.py \
+            --base-ref "origin/main" --head-ref "HEAD" --require-unit
+
+      - name: Authenticate to GCP via WIF
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ---------- Portal ----------
+      - name: Leer configuración del portal
+        id: portal_cfg
+        if: steps.detect.outputs.tipo == 'portal'
+        run: |
+          uv run python scripts/leer_config.py --archivo portal/config/portal.yaml \
+            --valor version=portal.version
+          uv run python scripts/leer_config.py --archivo portal/config/env_qa.yaml \
+            --valor repositorio=imagen.repositorio --valor nombre=imagen.nombre
+
+      # Build en el runner y push al Artifact Registry de QA con dos tags:
+      # <version> (móvil) y <version>-<sha> (inmutable: es el que ubica el C4 del pase a PRD).
+      - name: Build y push de la imagen
+        id: build
+        if: steps.detect.outputs.tipo == 'portal'
+        env:
+          IMAGE: ${{ steps.portal_cfg.outputs.repositorio }}/${{ steps.portal_cfg.outputs.nombre }}
+          VERSION: ${{ steps.portal_cfg.outputs.version }}
+          SHORT_SHA: ${{ steps.sha.outputs.short }}
+        run: |
+          gcloud auth configure-docker "$REGISTRY_HOST" --quiet
+          docker build -f portal/Dockerfile \
+            -t "$IMAGE:$VERSION" -t "$IMAGE:$VERSION-$SHORT_SHA" .
+          docker push "$IMAGE:$VERSION-$SHORT_SHA"
+          docker push "$IMAGE:$VERSION"
+          # Se despliega por digest: lo que corre es exactamente lo que se construyó.
+          echo "image_ref=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$VERSION-$SHORT_SHA")" >> "$GITHUB_OUTPUT"
+          echo "tag=$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      # Deploy con los parámetros de env_qa.yaml y smoke test de /api/salud.
+      - name: Deploy a Cloud Run (QA)
+        id: deploy
+        if: steps.detect.outputs.tipo == 'portal'
+        run: |
+          uv run python scripts/desplegar_portal.py \
+            --env qa \
+            --image-ref "${{ steps.build.outputs.image_ref }}" \
+            --version "${{ steps.portal_cfg.outputs.version }}" \
+            --identity-api-key "$IDENTITY_API_KEY" \
+            --identity-auth-domain "$IDENTITY_AUTH_DOMAIN"
+
+      # ---------- App ----------
+      - name: Publicar app en QA
+        id: app
+        if: steps.detect.outputs.tipo == 'app'
+        run: |
+          uv run python scripts/validar_apps.py --repo-root .
+          uv run python scripts/publicar_app.py \
+            --app-path "${{ steps.detect.outputs.unidad }}" \
+            --env qa \
+            --sha "${{ steps.sha.outputs.value }}" \
+            --actor "${{ github.actor }}" \
+            --diff-output "$RUNNER_TEMP/diff_accesos.json"
+          uv run python scripts/leer_config.py --archivo "${{ steps.detect.outputs.unidad }}/app.yaml" \
+            --valor version=version
+
+      - name: Update commit status (final)
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const success = '${{ job.status }}' === 'success';
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner, repo: context.repo.repo,
+              sha: '${{ steps.sha.outputs.value }}',
+              state: success ? 'success' : 'failure',
+              context: 'deploy/qa',
+              description: success ? 'Desplegado en QA' : 'El despliegue a QA falló',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
+      - name: Create or update PR comment
+        if: always() && steps.find-pr.outputs.pr_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const MARKER = '<!-- deploy-qa-status -->';
+            const success = '${{ job.status }}' === 'success';
+            const tipo = '${{ steps.detect.outputs.tipo }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const detalle = tipo === 'portal'
+              ? [
+                  `- **Imagen:** \`${{ steps.build.outputs.tag || 'no construida' }}\``,
+                  `- **URL:** ${{ steps.deploy.outputs.url || 'no desplegado' }}`,
+                ]
+              : [
+                  `- **Huella:** \`${'${{ steps.app.outputs.huella }}'.substring(0, 12) || 'no publicada'}\``,
+                  `- **Objetos:** \`${{ steps.app.outputs.objetos || 'ninguno' }}\``,
+                ];
+            const version = '${{ steps.portal_cfg.outputs.version || steps.app.outputs.version }}';
+            const body = [
+              MARKER,
+              `### ${success ? '✅' : '❌'} Deploy a QA: **${success ? 'EXITOSO' : 'FALLIDO'}**`,
+              '',
+              `- **Unidad:** \`${{ steps.detect.outputs.unidad || 'no detectada' }}\``,
+              `- **Commit desplegado:** \`${'${{ steps.sha.outputs.value }}'.substring(0, 7)}\``,
+              `- **Versión:** \`${version || 'no leída'}\``,
+              ...detalle,
+              `- **Workflow run:** [#${context.runId}](${runUrl})`,
+              `- **Ejecutado por:** @${context.actor}`,
+              '',
+              success
+                ? 'Validar en QA antes de pedir aprobación de la PR.'
+                : 'El despliegue falló. Revisar el run antes de pedir aprobación.',
+            ].join('\n');
+            const prNumber = Number('${{ steps.find-pr.outputs.pr_number }}');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: prNumber, per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(MARKER));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: prNumber, body,
+              });
+            }

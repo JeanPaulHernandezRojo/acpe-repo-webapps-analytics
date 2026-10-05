@@ -1,0 +1,13 @@
+# Política de correos que pueden ingresar al portal.
+# Se aplica en el frontend (mensaje inmediato), en el backend (control real) y en pr_checks
+# (correos declarados en los app.yaml). Toda comparación se hace en minúsculas y sin espacios.
+
+politica:
+  # Dominios permitidos (lo que va después de la '@').
+  dominios_permitidos:
+    - "alicorp.com.pe"
+  # Prefijos excluidos del usuario (lo que va antes de la '@'). Ejemplo: "ext_" bloquea
+  # ext_jperez@alicorp.com.pe. Vacío = sin exclusiones.
+  prefijos_excluidos: []
+  # Mensaje que ve quien ingresa un correo que no cumple la política.
+  mensaje_rechazo: "Solo pueden ingresar colaboradores con correo corporativo de Alicorp."

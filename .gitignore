@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.venv/
+
+# UV
+.uv-cache/
+
+# Frontend
+node_modules/
+portal/frontend/dist/
+*.tsbuildinfo
+.vite/
+
+# Variables locales de desarrollo
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
