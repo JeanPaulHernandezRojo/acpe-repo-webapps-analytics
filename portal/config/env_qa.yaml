@@ -1,49 +1,38 @@
-# Parámetros del ambiente QA. Los lee el backend (vía APP_ENV=qa) y los workflows de despliegue.
+# Parámetros del ambiente QA (MVP en un proyecto propio).
 
 ambiente:
-  # Nombre corto del ambiente: se usa en labels, eventos de auditoría y el prefijo del bucket.
   nombre: "qa"
-  proyecto: "acpe-qa-uc-ml"
+  proyecto: "alejandria-mvp"
   region: "us-east1"
 
 cloud_run:
-  servicio: "us-qa-run-portal-webapps"
-  cuenta_runtime: "qa-gsa-portal-runtime@acpe-qa-uc-ml.iam.gserviceaccount.com"
-  # Instancias: min 0 en QA (se tolera el arranque en frío). Editar y redesplegar para cambiarlas.
+  servicio: "mvp-qa-run-portal-webapps"
+  cuenta_runtime: "mvp-gsa-portal-runtime@alejandria-mvp.iam.gserviceaccount.com"
+  # MVP: 0 instancias mínimas (sin costo en reposo; el primer ingreso tarda unos segundos).
   min_instances: 0
   max_instances: 1
   cpu: "1"
   memoria: "1Gi"
-  # Requests simultáneos que atiende cada instancia.
   concurrencia: 80
 
 imagen:
-  # Repositorio de Artifact Registry del ambiente (compartido con los pipelines de ML).
-  repositorio: "us-east1-docker.pkg.dev/acpe-qa-uc-ml/us-qa-arg-ml-pipelines"
+  repositorio: "us-east1-docker.pkg.dev/alejandria-mvp/mvp-arg-portal"
   nombre: "portal-webapps"
 
 bucket:
-  nombre: "us-qa-stg-ml-webapps"
-  # Carpeta del ambiente dentro del bucket: <prefijo>/<dominio>/<app>/index.html y <prefijo>/_catalogo/.
+  nombre: "alejandria-mvp-webapps"
   prefijo: "qa"
 
 sesion:
-  # Vigencia máxima de la sesión en el servidor. La cookie además se borra al cerrar el navegador.
   horas: 12
 
 auditoria:
-  # Cada cuántos segundos el visor envía un "latido" mientras la pestaña está visible.
   latido_segundos: 300
 
 catalogo:
-  # Segundos que el backend reutiliza el catálogo leído del bucket antes de volver a leerlo.
   ttl_segundos: 60
 
 limites:
-  # Requests por minuto por correo en rutas con sesión (el exceso recibe 429).
   usuario_por_minuto: 120
-  # Requests por minuto por IP en rutas públicas (ingreso y configuración).
   ip_por_minuto: 30
-  # Posición, contada desde el final, de la IP del cliente en X-Forwarded-For.
-  # 1 = último valor (el que agrega la infraestructura de Google). Se verifica en QA.
   ip_indice_desde_final: 1
