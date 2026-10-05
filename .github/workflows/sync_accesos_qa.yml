@@ -43,7 +43,7 @@ jobs:
           service_account: ${{ env.DEPLOYER_SA }}
 
       - name: Setup gcloud
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Sincronizar accesos de las apps modificadas
         env:
