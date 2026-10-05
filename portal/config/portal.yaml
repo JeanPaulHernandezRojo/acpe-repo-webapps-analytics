@@ -9,7 +9,7 @@ portal:
   contacto: "Si necesitas acceso a una herramienta, escríbele al equipo de Analítica Avanzada."
   # Versión de release CalVer (AAAA-MM-DD-NN). Se sube en cada pase del portal a PRD:
   # taggea la imagen, nombra la rama release_portal_<version> y la valida el control C3.
-  version: "2026-10-01-01"
+  version: "2026-10-05-01"
 
 # Labels de costos y trazabilidad del servicio de Cloud Run (formato GCP:
 # minúsculas, dígitos, '_' y '-', hasta 63 caracteres). El despliegue agrega env y version.

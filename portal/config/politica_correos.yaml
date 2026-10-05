@@ -6,6 +6,7 @@ politica:
   # Dominios permitidos (lo que va después de la '@').
   dominios_permitidos:
     - "alicorp.com.pe"
+    - "gmail.com"
   # Prefijos excluidos del usuario (lo que va antes de la '@'). Ejemplo: "ext_" bloquea
   # ext_jperez@alicorp.com.pe. Vacío = sin exclusiones.
   prefijos_excluidos: []
