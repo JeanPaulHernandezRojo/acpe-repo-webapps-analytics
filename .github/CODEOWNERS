@@ -1,8 +1,0 @@
-# CODEOWNERS: ALEJANDRÍA
-#
-# Regla única: todo cambio del repo requiere la aprobación de un LT
-# (ml-engineering-reviewer), incluidas las apps de los equipos de DS y, sobre todo,
-# .github/ (donde viven los controles del pase) y portal/config/ (política de correos,
-# CSP e íconos).
-
-*   @Alicorp-Digital/ml-engineering-reviewer
